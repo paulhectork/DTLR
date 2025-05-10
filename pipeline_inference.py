@@ -335,6 +335,7 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
         rmext(inbbox)
         in [rmext(inimg) for inimg in inimg_dir_abs]
         for inbbox in inbbox_dir_abs
+        if re.search("\.json$", inbbox)
     ), f"not all bounding boxes (in '{inbbox_dir_abs}') have a matching image file (in '{inimg_dir_abs}')"
 
     return inimg_dir_abs, inbbox_dir_abs, outimg_dir_abs
@@ -361,7 +362,7 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
 def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--inimg", required=True, help="directory containing JPG files. files must be at the root of the directory and end with `.jpg` extension to be processed")
-    parser.add_argument("-b", "--inbbox", required=True, help="directory containing bounding box jsons for each JPG file. files must be at the root and filenames must match the ones in `inimg`(minus the extension)")
+    parser.add_argument("-b", "--inbbox", required=True, help="directory containing bounding box JSONS for each JPG file. files must be at the root and filenames must match the ones in `inimg`(minus the extension)")
     parser.add_argument("-o", "--output", required=True, help="output directory for the character detection. one file per input file will be saved")
     args = parser.parse_args()
 
