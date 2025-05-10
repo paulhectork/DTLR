@@ -24,23 +24,25 @@ DIR_PATH = os.path.abspath(os.path.dirname(__file__))  # directory of this file
 MODEL_CONFIG_PATH = os.path.join(DIR_PATH, "config", "HWDB_full.py")
 MODEL_CHARSET_PATH = os.path.join(DIR_PATH, "data", "dante", "labels_icdar.pkl")
 MODEL_CHECKPOINT_PATH = os.path.join(DIR_PATH, "logs", "dante", "medieval_checkpoint.pth")
+COCO_PATH = os.path.join(DIR_PATH, "comp_robot", "cv_public_dataset", "COCO2017")
 
 # WORKSSSSSS
 with open(MODEL_CHARSET_PATH, mode="rb") as fh:
     charset = pickle.load(fh)
+    print(charset)
 
 # -------------------------------------------------------
 # model
 
-#TODO understand
-args = SLConfig.fromfile(MODEL_CONFIG_PATH)
-args.device = 'cuda:0'
-args.CTC_training = False
-args.CTC_loss_coef = 0.25
-args.dataset_file = 'icdar_multi'
+def load_model():
+    args = SLConfig.fromfile(MODEL_CONFIG_PATH)
+    args.device = 'cuda:0'
+    args.CTC_training = False
+    args.CTC_loss_coef = 0.25
+    args.dataset_file = 'icdar_multi'
 
-args.coco_path = "/comp_robot/cv_public_dataset/COCO2017/"  # the path of coco
-args.fix_size = False
+    args.coco_path = ""  # the path of coco
+    args.fix_size = False
 
 # I THINK WE SHOULD MODIFY THIS WITH `labels_idcar.py`
 # args.dataset_file = "icdar_classif_font" #icdar_" + args.dataset_file
@@ -318,7 +320,7 @@ def wid_from_filename(f:str) -> str|None:
     return wid[0] if wid is not None else None
 
 # -------------------------------------------------------
-# cli input functions
+# i/o
 
 def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike]:
     inimg_dir_abs = to_abspath(inimg_dir)
@@ -340,6 +342,30 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
 
     return inimg_dir_abs, inbbox_dir_abs, outimg_dir_abs
 
+def get_img_for_id(inimg_dir:os.PathLike, img_id:str) -> os.PathLike:
+    for fn in os.listdir(inimg_dir):
+        if rmext(fn) == img_id:
+            return os.path.join(inimg_dir, fn)
+
+def get_json_for_id(inbbox_dir:os.PathLike, img_id:str) -> os.PathLike:
+    for fn in os.listdir(inbbox_dir):
+        if rmext(fn) == img_id:
+            return os.path.join(inbbox_dir, fn)
+
+# `get_json_for_id` and `get_img_for_id` will never return an empty result based on the check in `sanitize`, so no need to do checks here
+def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike) -> Dict[str, Tuple[os.PathLike, os.PathLike]]:
+    img_ids = [
+        rmext(inbbox)
+        for inbbox in inbbox_dir
+        if re.search("\.json$", inbbox)
+    ]
+    return {
+        img_id: [
+            get_img_for_id(inimg_dir, img_id),
+            get_json_for_id(inbbox_dir, img_id)
+        ] for img_id in img_ids
+    }
+
 # create output directory: output_img_dir/<wid>/ (in `output_img_dir`, one directotry per `wid`)
 def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> None:
     if not os.path.isdir(outimg_dir):
@@ -355,6 +381,11 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
             os.makedirs(wid_path)
     return
 
+# -------------------------------------------------------
+# inference pipeline
+
+def single_img_pipeline() -> None:
+    ...
 
 # -------------------------------------------------------
 # cli
@@ -372,6 +403,12 @@ def cli():
 
     inimg_dir, inbbox_dir, output_dir = sanitize(inimg_dir, inbbox_dir, output_dir)
     create_output_structure(inimg_dir, output_dir)
+    file_pairs = get_file_pairs(inimg_dir, inbbox_dir)
+
+    outfiles = os.listdir(outdir)
+
+    for img_id, (fp_img, fp_json) in file_pairs.items():
+        single_img_pipeline()
 
 
 if __name__ == "__main__":
