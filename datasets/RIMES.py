@@ -23,6 +23,7 @@ else:
 
 with open(os.path.join(current_dir, 'config.json'), 'r') as f:
     datasets_path = json.load(f)
+    print(datasets_path)
 
 # Access the value of the datasets_path key
 datasets_path = datasets_path['datasets_path']

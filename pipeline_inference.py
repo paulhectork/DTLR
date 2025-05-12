@@ -61,55 +61,6 @@ COCO_PATH = os.path.join(DIR_PATH, "comp_robot", "cv_public_dataset", "COCO2017"
 #     charset = pickle.load(fh)
 #     print(charset)
 
-# -------------------------------------------------------
-# model
-
-def load_model():
-    args = SLConfig.fromfile(MODEL_CONFIG_PATH)
-    args.device = 'cuda:0'
-    args.CTC_training = False
-    args.CTC_loss_coef = 0.25
-    args.dataset_file = 'icdar_multi'
-
-    args.coco_path = ""  # the path of coco
-    args.fix_size = False
-
-    # I THINK WE SHOULD MODIFY THIS WITH `labels_idcar.py`
-    # args.dataset_file = "icdar_classif_font" #icdar_" + args.dataset_file
-    dataset_val = build_dataset(image_set='train', args=args)
-
-    device = args.device
-    args.charset = dataset_val.charset
-    model, criterion, postprocessors = build_model_main(args)
-    checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
-
-    device = args.device
-    args.charset = dataset_val.charset
-    model, criterion, postprocessors = build_model_main(args)
-    features_dim = model.class_embed[0].weight.data.shape[1]
-    new_charset_size = len(args.charset)
-
-    #NOTE which is it ? both are in the source code
-    new_class_embed = nn.Linear(features_dim, new_charset_size, )
-    new_class_embed = nn.ModuleList(class_embed_layerlist)
-
-    new_decoder_class_embed = nn.Linear(features_dim, new_charset_size, )
-    new_enc_out_class_embed = nn.Linear(features_dim, new_charset_size, )
-
-    if model.dec_pred_class_embed_share:
-        class_embed_layerlist = [new_class_embed for i in range(model.transformer.num_decoder_layers)]
-
-    model.class_embed = new_class_embed.to(device)
-    model.transformer.decoder.class_embed = new_decoder_class_embed.to(device)
-    model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
-    # model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
-
-    # if model.label_enc.weight.data.shape[0] < len(dataset_val.charset)+1:
-    model.label_enc = nn.Embedding(len(dataset_val.charset) + 1, features_dim).to(device)
-    # checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
-    model.load_state_dict(checkpoint['model'])
-    model.eval()
-    model.to(device)
 
 
 ### Injective mapping between the new and old charset (random mapping)
@@ -264,6 +215,55 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
     return
 
 # -------------------------------------------------------
+# model
+
+def load_model():
+    args = SLConfig.fromfile(MODEL_CONFIG_PATH)
+    args.device = 'cuda:0'
+    args.CTC_training = False
+    args.CTC_loss_coef = 0.25
+
+    args.coco_path = ""  # the path of coco
+    args.fix_size = False
+
+    ## WHAT TO DO WITH CHARSET ??? TBD
+    # with open(MODEL_CHARSET_PATH, mode="rb") as fh:
+    #     charset = pickle.load(fh)
+    ## I THINK WE SHOULD MODIFY THIS WITH `labels_idcar.py`
+    ## OG CODE
+    # args.dataset_file = "RIMES" #'icdar_multi'
+    # dataset_val = build_dataset(image_set='train', args=args)
+    # args.charset = dataset_val.charset
+    # new_charset_size = len(args.charset)
+
+    device = args.device
+    model, criterion, postprocessors = build_model_main(args)
+    checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
+    features_dim = model.class_embed[0].weight.data.shape[1]
+
+    #NOTE which is it ? both are in the source code
+    new_class_embed = nn.Linear(features_dim, new_charset_size, )
+    new_class_embed = nn.ModuleList(class_embed_layerlist)
+
+    new_decoder_class_embed = nn.Linear(features_dim, new_charset_size, )
+    new_enc_out_class_embed = nn.Linear(features_dim, new_charset_size, )
+
+    if model.dec_pred_class_embed_share:
+        class_embed_layerlist = [new_class_embed for i in range(model.transformer.num_decoder_layers)]
+
+    model.class_embed = new_class_embed.to(device)
+    model.transformer.decoder.class_embed = new_decoder_class_embed.to(device)
+    model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
+    # model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
+
+    # if model.label_enc.weight.data.shape[0] < len(dataset_val.charset)+1:
+    model.label_enc = nn.Embedding(len(dataset_val.charset) + 1, features_dim).to(device)
+    # checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
+    model.load_state_dict(checkpoint['model'])
+    model.eval()
+    model.to(device)
+
+# -------------------------------------------------------
 # inference pipeline
 
 transform = T.Compose([
@@ -274,11 +274,11 @@ transform = T.Compose([
 
 # perform crop of the image + turn that crop into a tensor
 def img_crop_to_tensor(
-    image:ImageType, l:int, t:int, r:int, b:int
+    image:ImageType, l:float, t:float, r:float, b:float
 ) -> Tuple[ImageType, torch.FloatTensor, Tuple[int,int], Tuple[int,int]]:
     crop_image = image.crop((l, t, r, b))
-    crop_image_size = crop.size
-    crop_tensor, _ = transform(crop, None)
+    crop_image_size = crop_image.size
+    crop_tensor, _ = transform(crop_image, None)
     crop_tensor_size = crop_tensor.shape[2], crop_tensor.shape[1]
     return crop_image, crop_tensor, crop_image_size, crop_tensor_size
 
@@ -295,12 +295,12 @@ def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
     for dd in data['annotations']:
         bbox_crop = dd['bbox']
         # extract crops and widen bounding boxes
-        l, t, r, b = bbox_crop  # left, top, right, bottom
-        # l = l - 10
-        # t = t - 10
-        # r = r + 10
-        # b = b + 3
-        l, t, r, b = l-10, t-10, r-10, b-3
+        print(bbox_crop)
+        #NOTE i thought `../LinePredictor.inference_pipeline.convert_poly_to_bbox`
+        # returned (l,t,b,r), but apparently not since here i need to extract l,b,r,t in that order ?
+        # unless all boxes are upside down ?
+        l, b, r, t = bbox_crop  # left, bottom, top, right
+        l, t, r, b = l-10, t-10, r+10, b+3
         list_lt.append((l, t))
         try:
             crop_image, crop_tensor, crop_image_size, crop_tensor_size = img_crop_to_tensor(image, l, t, r, b)
@@ -311,12 +311,12 @@ def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
             print(e)
             print('Error processing file', fp_img)
             raise
-        continue
-
 
         try:
             with torch.no_grad():
                 output = model.cuda()(crop_tensor[None].cuda())
+                print(output, type(output))
+                exit()
                 polygones = output['pred_boxes']
 
                 postprocessors['bbox'].nms_iou_threshold = 0.2
@@ -348,6 +348,7 @@ def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
             print('Error in page', pp)
             list_bbox.append([])
             list_labels.append([])
+
 
     # create folder bb for
     if not os.path.exists('dantes_images'):
@@ -436,7 +437,8 @@ def cli():
         for dp, dn, filenames in os.walk(output_dir)
         for f in filenames if os.path.isfile(os.path.join(dp, f))
     ]
-    print(file_pairs)
+
+    load_model()
 
     for (fp_json, fp_img) in file_pairs:
         pipeline(fp_json, fp_img)
