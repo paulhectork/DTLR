@@ -9,6 +9,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+from tqdm import tqdm
 from torch import nn
 from PIL import Image
 from PIL.Image import Image as ImageType
@@ -16,10 +17,11 @@ from typing import Tuple, Dict, List
 
 import datasets.transforms as T
 from main_synthetic import build_model_main
-from util.slconfig import SLConfig
 from datasets import build_dataset
-from util.visualizer import COCOVisualizer
 from util import box_ops
+from util.slconfig import SLConfig
+from util.visualizer import COCOVisualizer
+from models.dino.dino import DINO, PostProcess
 
 """
 perform line inference using 2 inputs: image files
@@ -55,13 +57,6 @@ MODEL_CONFIG_PATH = os.path.join(DIR_PATH, "config", "HWDB_full.py")
 MODEL_CHARSET_PATH = os.path.join(DIR_PATH, "data", "dante", "labels_icdar.pkl")
 MODEL_CHECKPOINT_PATH = os.path.join(DIR_PATH, "logs", "dante", "medieval_checkpoint.pth")
 COCO_PATH = os.path.join(DIR_PATH, "comp_robot", "cv_public_dataset", "COCO2017")
-
-# WORKSSSSSS
-# with open(MODEL_CHARSET_PATH, mode="rb") as fh:
-#     charset = pickle.load(fh)
-#     print(charset)
-
-
 
 ### Injective mapping between the new and old charset (random mapping)
 
@@ -101,7 +96,7 @@ COCO_PATH = os.path.join(DIR_PATH, "comp_robot", "cv_public_dataset", "COCO2017"
 # print(len(mapping), len(args.charset))
 #
 # for j in range(model.transformer.num_decoder_layers):
-#     for i in range(new_charset_size):
+#     for i in range(charset_size):
 #         new_class_embed[j].weight.data[i, :] = model.class_embed[j].weight.data[mapping[i], :]
 #         new_class_embed[j].bias.data[i] = model.class_embed[j].bias.data[mapping[i]]
 #
@@ -155,15 +150,22 @@ def wid_from_filename(f:str) -> str|None:
     wid = re.search(r"^wit\d+_man\d+", f)
     return wid[0] if wid is not None else None
 
-def get_img_name_from_json(fp_json:os.PathLike) -> str:
+def img_name_from_json(fp_json:os.PathLike) -> str:
     with open(fp_json, mode="r") as fh:
         data = json.load(fh)
     return data["images"][0]["file_name"]
 
 # the json bbox contains the name of the image file it is related to. test that we can find the file from the json
 def test_json_to_img_link(fp_json:os.PathLike, inimg_dir:os.PathLike) -> bool:
-    img_name = get_img_name_from_json(fp_json)
+    img_name = img_name_from_json(fp_json)
     return os.path.isfile(os.path.join(inimg_dir, img_name))
+
+def to_out_visualization(img_name:str, output_dir:os.PathLike) -> os.PathLike:
+    return os.path.join(output_dir, "visualization", f"{rmext(img_name)}.jpg")
+
+def to_out_coco(img_name:str, output_dir:os.PathLike) -> os.PathLike:
+    subfolder = wid_from_filename(img_name)
+    return os.path.join(output_dir, subfolder, f"{rmext(img_name)}.json")
 
 # -------------------------------------------------------
 # i/o
@@ -191,16 +193,17 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
     return inimg_dir_abs, inbbox_dir_abs, outimg_dir_abs
 
 # returns a list of (json_file, img_file) for each json to process
-def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike) -> List[Tuple[os.PathLike, os.PathLike]]:
+def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, visualize:bool=False) -> List[Tuple[os.PathLike, os.PathLike]]:
     fp_json_list = [
         os.path.join(inbbox_dir, fn)
         for fn in os.listdir(inbbox_dir)
         if re.search(r"\.json$", fn) is not None
     ]
-    return [
-        (fp_json, os.path.join(inimg_dir, get_img_name_from_json(fp_json)))
+    file_pairs = [
+        (fp_json, os.path.join(inimg_dir, img_name_from_json(fp_json)))
         for fp_json in fp_json_list
     ]
+    return file_pairs[:10] if visualize and len(file_pairs) > 10 else file_pairs
 
 # create output directory: output_img_dir/<wid>/ (in `output_img_dir`, one directotry per `wid`)
 def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> None:
@@ -215,58 +218,67 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
         wid_path = os.path.join(outimg_dir, wid)
         if not os.path.isdir(wid_path):
             os.makedirs(wid_path)
+    vis_path = os.path.join(outimg_dir, "visualization")
+    if not os.path.isdir(vis_path):
+        os.makedirs(vis_path)
     return
 
 # -------------------------------------------------------
 # model
 
-def load_model():
-    args = SLConfig.fromfile(MODEL_CONFIG_PATH)
-    args.device = 'cuda:0'
-    args.CTC_training = False
-    args.CTC_loss_coef = 0.25
-
-    args.coco_path = ""  # the path of coco
-    args.fix_size = False
-
-    ## WHAT TO DO WITH CHARSET ??? TBD
-    # with open(MODEL_CHARSET_PATH, mode="rb") as fh:
-    #     charset = pickle.load(fh)
-    ## I THINK WE SHOULD MODIFY THIS WITH `labels_idcar.py`
-    ## OG CODE
-    # args.dataset_file = "RIMES" #'icdar_multi'
-    # dataset_val = build_dataset(image_set='train', args=args)
-    # args.charset = dataset_val.charset
-    # new_charset_size = len(args.charset)
+def load_model() -> Tuple[List[str], DINO, Dict[str, PostProcess]]:
 
     torch.serialization.add_safe_globals([argparse.Namespace])
 
-    device = args.device
+    device = "cuda:0"
+    args = SLConfig.fromfile(MODEL_CONFIG_PATH)
+    args.device = device
+    args.CTC_training = False
+    args.CTC_loss_coef = 0.25
+    args.coco_path = ""  # the path of coco
+    args.fix_size = False
+
+    with open(MODEL_CHARSET_PATH, mode="rb") as fh:
+        labels = pickle.load(fh)
+    # all available fonts in `charset`:
+    # ['antiqua', 'bastarda', 'fraktur', 'gotico-antiqua', 'italic', 'rotunda', 'schwabacher', 'textura', 'all', 'all_multi']
+    # => for now, we pick `all_multi`.
+    # for font in labels["charset"]:
+    #     print(font, len(labels["charset"][font]))
+    charset = labels["charset"]["all_multi"]
+    args.charset = charset
+    charset_size = len(args.charset)
+
     model, criterion, postprocessors = build_model_main(args)
     checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
     features_dim = model.class_embed[0].weight.data.shape[1]
 
-    #NOTE which is it ? both are in the source code
-    new_class_embed = nn.Linear(features_dim, new_charset_size, )
-    new_class_embed = nn.ModuleList(class_embed_layerlist)
+    #NOTE 1st class embed is nn.Linear (a linear transform)
+    new_class_embed = nn.Linear(features_dim, charset_size, )
+    new_decoder_class_embed = nn.Linear(features_dim, charset_size, )
+    new_enc_out_class_embed = nn.Linear(features_dim, charset_size, )
 
-    new_decoder_class_embed = nn.Linear(features_dim, new_charset_size, )
-    new_enc_out_class_embed = nn.Linear(features_dim, new_charset_size, )
-
+    # always true in our case => redefines `new_class_embed`
     if model.dec_pred_class_embed_share:
-        class_embed_layerlist = [new_class_embed for i in range(model.transformer.num_decoder_layers)]
+        class_embed_layerlist = [
+            new_class_embed
+            for i in range(model.transformer.num_decoder_layers)
+        ]
+
+    #NOTE 1st class embed is nn.ModuleList (6 linear layers, stacked)
+    new_class_embed = nn.ModuleList(class_embed_layerlist)
 
     model.class_embed = new_class_embed.to(device)
     model.transformer.decoder.class_embed = new_decoder_class_embed.to(device)
     model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
-    # model.transformer.enc_out_class_embed = new_enc_out_class_embed.to(device)
 
-    # if model.label_enc.weight.data.shape[0] < len(dataset_val.charset)+1:
-    model.label_enc = nn.Embedding(len(dataset_val.charset) + 1, features_dim).to(device)
-    # checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
+    model.label_enc = nn.Embedding(charset_size + 1, features_dim).to(device)
     model.load_state_dict(checkpoint['model'])
     model.eval()
     model.to(device)
+
+    return charset, model, postprocessors
+
 
 # -------------------------------------------------------
 # inference pipeline
@@ -279,87 +291,117 @@ transform = T.Compose([
 
 # perform crop of the image + turn that crop into a tensor
 def img_crop_to_tensor(
-    image:ImageType, l:float, t:float, r:float, b:float
-) -> Tuple[ImageType, torch.FloatTensor, Tuple[int,int], Tuple[int,int]]:
+    image:ImageType, bbox_crop: List[float]#l:float, t:float, r:float, b:float
+) -> Tuple[float, float, ImageType, torch.FloatTensor, Tuple[int,int], Tuple[int,int]]:
+    # extract crops and widen bounding boxes
+    #NOTE i thought `../LinePredictor.inference_pipeline.convert_poly_to_bbox`
+    # returned (l,t,b,r), but apparently not since here i need to extract l,b,r,t in that order ?
+    # unless all boxes are upside down ?
+    l, b, r, t = bbox_crop  # left, bottom, top, right
+    l, t, r, b = l-10, t-10, r+10, b+3
+
     crop_image = image.crop((l, t, r, b))
     crop_image_size = crop_image.size
     crop_tensor, _ = transform(crop_image, None)
     crop_tensor_size = crop_tensor.shape[2], crop_tensor.shape[1]
-    return crop_image, crop_tensor, crop_image_size, crop_tensor_size
+    return l, t, crop_image, crop_tensor, crop_image_size, crop_tensor_size
 
-def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
+# run character inference on a single bounding box
+# `boxes` = character bounding boxes in `bbox`, in dimensions relative to the tensor
+# `final_boxes` = character bounding boxes in `bbox`, in dimensions relative to the actual image
+#NOTE are the dimensions of `boxes` and `final_boxes` in (left, top, right, bottom)
+# or in `(x, y, height, width)`
+def inference(
+    model:DINO,
+    postprocessors: Dict[str, PostProcess],
+    charset: List[str],
+    crop_tensor: torch.FloatTensor,
+    crop_image_size: Tuple[float,float],
+    crop_tensor_size: Tuple[float,float]
+) -> List[str]:
 
+    # perform inference
+    with torch.no_grad():
+        output = model.cuda()(crop_tensor[None].cuda())
+        polygones:torch.FloatTensor = output['pred_boxes']
+        postprocessors['bbox'].nms_iou_threshold = 0.2
+        output = postprocessors['bbox'](output, torch.Tensor([[1.0, 1.0]]).cuda())[0]
+
+        # boxes = all character bounding boxes in `bbox`
+        boxes: torch.FloatTensor = output['boxes']
+        scores: torch.FloatTensor = output['scores']
+        labels: torch.IntTensor = output['labels']
+        select_mask: torch.BoolTensor = scores > 0.1
+
+        boxes_xyxy = boxes.clone()
+        # each box is now represented by [x,y,width,height]
+        boxes = box_ops.box_xyxy_to_cxcywh(boxes)
+        boxes = boxes[select_mask]
+        scores = scores[select_mask]
+        # extract a list of labels for characters in `bbox` and convert to utf-8
+        labels = labels[select_mask]
+        box_label = [charset[i] for i in labels]
+        box_label = [
+            bytes(_string, "utf-8").decode("unicode_escape")
+            for _string in box_label
+        ]
+
+    # shift bounding boxes from tensor dimension to the OG image's dimension
+    ratios_h, ratios_w = tuple(
+        float(sz) / float(sz_orig)
+        for sz, sz_orig
+        in zip(crop_image_size, crop_tensor_size)
+    )
+    w, h = crop_tensor_size
+    final_bboxes = boxes.cpu() * torch.tensor([w, h, w, h])  #
+    final_bboxes[:, :2] -= final_bboxes[:, 2:] / 2
+    final_bboxes *= torch.Tensor([ratios_w, ratios_h, ratios_w, ratios_h])
+    return box_label, final_bboxes
+
+
+def pipeline(
+    model:DINO,
+    postprocessors:Dict[str, PostProcess],
+    charset:List[str],
+    fp_json:os.PathLike,
+    fp_img:os.PathLike,
+    output_dir:os.PathLike,
+    visualize:bool
+):
+    list_bbox = []                      # list of torch.FloatTensor for character bounding boxes in the annotation. each bbox is structured as [x,y,w,h]
+    list_lt: List[Tuple[int,int]] = []  # list of (left,top)
+    list_labels: List[List[str]] = []   # list of predicted characters for a bbox
+
+    image_basename = os.path.basename(fp_img)
     image = Image.open(fp_img).convert("RGB")
     with open(fp_json, mode="r") as fh:
         data = json.load(fh)
 
-    list_bbox = []
-    list_lt: List[Tuple[int,int]] = []  # list of (left,top)
-    list_labels = []
-
-    for dd in data['annotations']:
-        bbox_crop = dd['bbox']
-        # extract crops and widen bounding boxes
-        print(bbox_crop)
-        #NOTE i thought `../LinePredictor.inference_pipeline.convert_poly_to_bbox`
-        # returned (l,t,b,r), but apparently not since here i need to extract l,b,r,t in that order ?
-        # unless all boxes are upside down ?
-        l, b, r, t = bbox_crop  # left, bottom, top, right
-        l, t, r, b = l-10, t-10, r+10, b+3
-        list_lt.append((l, t))
+    for annotation_line in data['annotations']:
+        bbox_crop = annotation_line['bbox']
         try:
-            crop_image, crop_tensor, crop_image_size, crop_tensor_size = img_crop_to_tensor(image, l, t, r, b)
-            print(crop_image)
-            print(crop_tensor)
-            print("...")
+            l, t, crop_image, crop_tensor, crop_image_size, crop_tensor_size = img_crop_to_tensor(image, bbox_crop)
+            list_lt.append((l, t))
+            box_label, bbox = inference(
+                model,
+                postprocessors,
+                charset,
+                crop_tensor,
+                crop_image_size,
+                crop_tensor_size
+            )
+            list_labels.append(box_label)
+            list_bbox.append(bbox)
         except Exception as e:
             print(e)
-            print('Error processing file', fp_img)
+            print('`pipeline()`: Error processing image', fp_img)
             raise
 
-        try:
-            with torch.no_grad():
-                output = model.cuda()(crop_tensor[None].cuda())
-                print(output, type(output))
-                exit()
-                polygones = output['pred_boxes']
-
-                postprocessors['bbox'].nms_iou_threshold = 0.2
-                output = postprocessors['bbox'](output, torch.Tensor([[1.0, 1.0]]).cuda())[0]
-
-                boxes = output['boxes']
-                scores = output['scores']
-                labels = output['labels']
-                select_mask = scores > 0.1
-                boxes_xyxy = boxes.clone()
-                boxes = box_ops.box_xyxy_to_cxcywh(boxes)
-                boxes = boxes[select_mask]
-                scores = scores[select_mask]
-                labels = labels[select_mask]
-                box_label = [dataset_val.charset[i] for i in labels]
-                # TODO retrieve labels corresponding to " " => delete to not consider accents
-                box_label = [bytes(_string, "utf-8").decode("unicode_escape") for _string in box_label]
-                list_labels.append(box_label)
-
-            ratios = tuple(float(s) / float(s_orig) for s, s_orig in zip(crop_image_size, crop_tensor_size))
-            ratios_h, ratios_w = ratios[0], ratios[1]
-            w, h = crop_tensor_size
-            final_bboxes = boxes.cpu() * torch.tensor([w, h, w, h])  #
-            final_bboxes[:, :2] -= final_bboxes[:, 2:] / 2
-            final_bboxes *= torch.Tensor([ratios_w, ratios_h, ratios_w, ratios_h]) # Bboxes correspondant à la vraie image croppée
-            list_bbox.append(final_bboxes)
-        except Exception as e:
-            print(e)
-            print('Error in page', pp)
-            list_bbox.append([])
-            list_labels.append([])
-
-
-    # create folder bb for
-    if not os.path.exists('dantes_images'):
-        os.makedirs('dantes_images')
-    fig, ax = plt.subplots(1)
-    ax.imshow(image)
+    # extract info + visualisation stuff
+    #TODO create a specific function for visualization
+    if visualize:
+        fig, ax = plt.subplots(1)
+        ax.imshow(image)
     bbox_image = []
     label_image = []
     for left_top, bbox, labels in zip(list_lt, list_bbox, list_labels):
@@ -367,37 +409,30 @@ def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
             x, y, w, h = bbb
             x_shifted = x + left_top[0]
             y_shifted = y + left_top[1]
-            rect = patches.Rectangle((x_shifted, y_shifted), w, h, linewidth=0.11, edgecolor='r', facecolor='none')
-            ax.add_patch(rect)
+            if visualize:
+                rect = patches.Rectangle((x_shifted, y_shifted), w, h, linewidth=0.11, edgecolor='r', facecolor='none')
+                ax.add_patch(rect)
             # Shift des bboxes pour avoir position relatives dans images
             bbox_image.append(torch.tensor([x_shifted, y_shifted, w, h]).long())
         label_image.append(labels)
-    try:
-        bbox_image = torch.stack(bbox_image)
-    except Exception as e:
-        # print(e)
-        # print('Error in page', pp)
-        # return
-        raise
 
-    # flatten labels
-    label_image = [item for sublist in label_image for item in sublist]
-    if not os.path.exists('dantes_images/' + bb):
-        os.makedirs('dantes_images/' + bb)
-
-    plt.savefig('dantes_images/' + bb + '/' + pp, dpi=300)
-    if not os.path.exists('dantes_coco'):
-        os.makedirs('dantes_coco')
+    if visualize:
+        outpath = to_out_visualization(image_basename, output_dir)
+        plt.savefig(outpath, dpi=300)
 
     # convert to coco format and save json
     coco_format = {
-        'images': [{'file_name': pp, 'id': 0, 'height': image.size[1], 'width': image.size[0]}],
+        'images': [{'file_name': image_basename, 'id': 0, 'height': image.size[1], 'width': image.size[0]}],
         'annotations': [],
         'categories': []
     }
 
     # To keep track of category IDs
     category_map = {}
+
+    # flatten labels
+    label_image = [item for sublist in label_image for item in sublist]
+    bbox_image = torch.stack(bbox_image)
 
     for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
         # Add category to the categories list if it doesn't exist
@@ -413,10 +448,10 @@ def pipeline(fp_json:os.PathLike, fp_img:os.PathLike):
             'bbox': [bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()],
             'category_id': category_map[label]
         })
-    if not os.path.exists('dantes_coco/' + bb):
-        os.makedirs('dantes_coco/' + bb)
-    with open('dantes_coco/' + bb + '/' + pp.split('.')[0] + '.json', 'w') as f:
-        json.dump(coco_format, f)
+    outpath_coco = to_out_coco(image_basename, output_dir)
+    with open(outpath_coco, mode='w') as fh:
+        json.dump(coco_format, fh)
+    return
 
 # -------------------------------------------------------
 # cli
@@ -426,15 +461,20 @@ def cli():
     parser.add_argument("-i", "--inimg", required=True, help="directory containing JPG files. files must be at the root of the directory and end with `.jpg` extension to be processed")
     parser.add_argument("-b", "--inbbox", required=True, help="directory containing bounding box JSONS for each JPG file. files must be at the root and filenames must match the ones in `inimg`(minus the extension)")
     parser.add_argument("-o", "--output", required=True, help="output directory for the character detection. one file per input file will be saved")
+    parser.add_argument("-v", "--visualize", action="store_true", default=False, help="visualize the character extraction results instead saving them. in this case, only the first 10 files will be processed.")
     args = parser.parse_args()
 
     inimg_dir = args.inimg
     inbbox_dir = args.inbbox
     output_dir = args.output
+    visualize = args.visualize
+
+    if visualize:
+        print("\nINFO: when using `-v` `--visualize` flag, at most 10 images are processed\n")
 
     inimg_dir, inbbox_dir, output_dir = sanitize(inimg_dir, inbbox_dir, output_dir)
     create_output_structure(inimg_dir, output_dir)
-    file_pairs = get_file_pairs(inimg_dir, inbbox_dir)
+    file_pairs = get_file_pairs(inimg_dir, inbbox_dir, visualize)
 
     outfiles = os.listdir(output_dir)
     outfiles = [
@@ -443,10 +483,10 @@ def cli():
         for f in filenames if os.path.isfile(os.path.join(dp, f))
     ]
 
-    load_model()
+    charset, model, postprocessors = load_model()
 
-    for (fp_json, fp_img) in file_pairs:
-        pipeline(fp_json, fp_img)
+    for (fp_json, fp_img) in tqdm(file_pairs, desc="processing character detection"):
+        pipeline(model, postprocessors, charset, fp_json, fp_img, output_dir, visualize)
 
 
 if __name__ == "__main__":
