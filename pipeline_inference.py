@@ -240,9 +240,9 @@ def load_model() -> Tuple[List[str], DINO, Dict[str, PostProcess]]:
 
     with open(MODEL_CHARSET_PATH, mode="rb") as fh:
         labels = pickle.load(fh)
+    #NOTE several fonts are available in the charset. we pick the font `all_multi`
     # all available fonts in `charset`:
     # ['antiqua', 'bastarda', 'fraktur', 'gotico-antiqua', 'italic', 'rotunda', 'schwabacher', 'textura', 'all', 'all_multi']
-    # => for now, we pick `all_multi`.
     # for font in labels["charset"]:
     #     print(font, len(labels["charset"][font]))
     charset = labels["charset"]["all_multi"]
@@ -253,7 +253,7 @@ def load_model() -> Tuple[List[str], DINO, Dict[str, PostProcess]]:
     checkpoint = torch.load(MODEL_CHECKPOINT_PATH, map_location='cpu')
     features_dim = model.class_embed[0].weight.data.shape[1]
 
-    #NOTE 1st class embed is nn.Linear (a linear transform)
+    # 2nd `new_class_embed` is nn.Linear (a linear transform)
     new_class_embed = nn.Linear(features_dim, charset_size, )
     new_decoder_class_embed = nn.Linear(features_dim, charset_size, )
     new_enc_out_class_embed = nn.Linear(features_dim, charset_size, )
@@ -265,7 +265,7 @@ def load_model() -> Tuple[List[str], DINO, Dict[str, PostProcess]]:
             for i in range(model.transformer.num_decoder_layers)
         ]
 
-    #NOTE 1st class embed is nn.ModuleList (6 linear layers, stacked)
+    # 2nd  `new_class_embed` is nn.ModuleList (6 linear layers, stacked)
     new_class_embed = nn.ModuleList(class_embed_layerlist)
 
     model.class_embed = new_class_embed.to(device)
@@ -398,6 +398,8 @@ def pipeline(
             raise
 
     # extract info + visualisation stuff
+    #TODO move everything below to their own functions
+    #TODO why is only start of lines extracted ?
     #TODO create a specific function for visualization
     if visualize:
         fig, ax = plt.subplots(1)
@@ -427,13 +429,11 @@ def pipeline(
         'categories': []
     }
 
-    # To keep track of category IDs
-    category_map = {}
-
     # flatten labels
     label_image = [item for sublist in label_image for item in sublist]
     bbox_image = torch.stack(bbox_image)
 
+    category_map = {}
     for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
         # Add category to the categories list if it doesn't exist
         if label not in category_map:
