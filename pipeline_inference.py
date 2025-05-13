@@ -161,9 +161,9 @@ def get_img_name_from_json(fp_json:os.PathLike) -> str:
     return data["images"][0]["file_name"]
 
 # the json bbox contains the name of the image file it is related to. test that we can find the file from the json
-def test_json_to_img_link(fp_json:os.PathLike, indir_img:os.PathLike) -> bool:
+def test_json_to_img_link(fp_json:os.PathLike, inimg_dir:os.PathLike) -> bool:
     img_name = get_img_name_from_json(fp_json)
-    return os.path.isfile(os.path.join(inimg_dir, fp_json))
+    return os.path.isfile(os.path.join(inimg_dir, img_name))
 
 # -------------------------------------------------------
 # i/o
@@ -180,8 +180,11 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
 
     # check that we can create a relationship from the bboxes json to the image files
     assert all(
-        test_json_to_img_link(inbbox, inimg_dir_abs) is True
-        for inbbox in inbbox_dir_abs
+        test_json_to_img_link(
+            os.path.join(inbbox_dir_abs, inbbox),
+            inimg_dir_abs
+        ) is True
+        for inbbox in os.listdir(inbbox_dir_abs)
         if re.search(r"\.json$", inbbox)
     ), f"not all bounding boxes (in '{inbbox_dir_abs}') have a matching image file (in '{inimg_dir_abs}')"
 
@@ -235,6 +238,8 @@ def load_model():
     # dataset_val = build_dataset(image_set='train', args=args)
     # args.charset = dataset_val.charset
     # new_charset_size = len(args.charset)
+
+    torch.serialization.add_safe_globals([argparse.Namespace])
 
     device = args.device
     model, criterion, postprocessors = build_model_main(args)
