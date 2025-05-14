@@ -37,7 +37,7 @@ NOTE: json bbox structure for one image is:
 ...   "annotations": [
 ...       {
 ...           "bbox": [
-...               [x1,y1,x2,y2],  # bounding box of the polygon
+...               [x1,y1,x2,y2],  # bounding box of the polygon  #TODO convert to cxcywh
 ...           ],
 ...           "category_id": 1,
 ...           "image_id": 0,
@@ -121,7 +121,7 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
 
 
 # returns a list of (json_file, img_file) for each json to process
-def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, visualize:bool=False) -> List[Tuple[os.PathLike, os.PathLike]]:
+def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, sample:bool=False) -> List[Tuple[os.PathLike, os.PathLike]]:
     fp_json_list = [
         os.path.join(inbbox_dir, fn)
         for fn in os.listdir(inbbox_dir)
@@ -131,7 +131,7 @@ def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, visualize:bool
         (fp_json, os.path.join(inimg_dir, img_name_from_json(fp_json)))
         for fp_json in fp_json_list
     ]
-    return file_pairs[:10] if visualize and len(file_pairs) > 10 else file_pairs
+    return file_pairs[:10] if sample and len(file_pairs) > 10 else file_pairs
 
 
 # create output directory: output_img_dir/<wid>/ (in `output_img_dir`, one directotry per `wid`)
@@ -427,19 +427,22 @@ def cli():
     parser.add_argument("-b", "--inbbox", required=True, help="directory containing bounding box JSONS for each JPG file. files must be at the root and filenames must match the ones in `inimg`(minus the extension)")
     parser.add_argument("-o", "--output", required=True, help="output directory for the character detection. one file per input file will be saved")
     parser.add_argument("-v", "--visualize", action="store_true", default=False, help="visualize the character extraction results instead saving them. in this case, only the first 10 files will be processed.")
+    parser.add_argument("-s", "--sample", action="store_true", default=False, help="process only the 10 first images.")
     args = parser.parse_args()
 
     inimg_dir = args.inimg
     inbbox_dir = args.inbbox
     output_dir = args.output
     visualize = args.visualize
+    sample = args.sample
 
     if visualize:
         print("\nINFO: when using `-v` `--visualize` flag, at most 10 images are processed\n")
+        sample = True
 
     inimg_dir, inbbox_dir, output_dir = sanitize(inimg_dir, inbbox_dir, output_dir)
     create_output_structure(inimg_dir, output_dir)
-    file_pairs = get_file_pairs(inimg_dir, inbbox_dir, visualize)
+    file_pairs = get_file_pairs(inimg_dir, inbbox_dir, sample)
 
     outfiles = os.listdir(output_dir)
     outfiles = [
