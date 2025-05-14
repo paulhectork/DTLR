@@ -37,7 +37,7 @@ NOTE: json bbox structure for one image is:
 ...   "annotations": [
 ...       {
 ...           "bbox": [
-...               [x1,y1,x2,y2],  # bounding box of the polygon  #TODO convert to cxcywh
+...               [l,t,r,b],  # bounding box of the polygon
 ...           ],
 ...           "category_id": 1,
 ...           "image_id": 0,
@@ -304,13 +304,8 @@ transform = T.Compose([
 def img_crop_to_tensor(
     image:ImageType, bbox_crop: List[float]#l:float, t:float, r:float, b:float
 ) -> Tuple[float, float, ImageType, torch.FloatTensor, Tuple[int,int], Tuple[int,int]]:
-    # extract crops and widen bounding boxes
-    #NOTE i thought `../LinePredictor.inference_pipeline.convert_poly_to_bbox`
-    # returned (l,t,b,r), but apparently not since here i need to extract l,b,r,t in that order ?
-    # unless all boxes are upside down ?
-    l, b, r, t = bbox_crop  # left, bottom, top, right
-    l, t, r, b = l-10, t-10, r+10, b+3
-
+    l, t, r, b = bbox_crop
+    l, t, r, b = l-10, t+5, r+10, b+3
     crop_image = image.crop((l, t, r, b))
     crop_image_size = crop_image.size
     crop_tensor, _ = transform(crop_image, None)
