@@ -1,5 +1,5 @@
-import re
 import os
+import re
 import sys
 import json
 import torch
@@ -57,79 +57,6 @@ MODEL_CONFIG_PATH = os.path.join(DIR_PATH, "config", "HWDB_full.py")
 MODEL_CHARSET_PATH = os.path.join(DIR_PATH, "data", "dante", "labels_icdar.pkl")
 MODEL_CHECKPOINT_PATH = os.path.join(DIR_PATH, "logs", "dante", "medieval_checkpoint.pth")
 COCO_PATH = os.path.join(DIR_PATH, "comp_robot", "cv_public_dataset", "COCO2017")
-
-### Injective mapping between the new and old charset (random mapping)
-
-# charset_without_accent = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-#                       't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
-#                       'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1', '2', '3', '4',
-#                       '5', '6', '7', '8', '9', '!', '?', ]
-# symbols = ['"', '#', '$', '%', '&', "'", '(', ')', '*', '+', ',', '-', '.', '/', ':', ';', '<', '=', '>', '@', '[',
-#        '\\', ']', '^', '_', '`', '{', '|', '}', '~', ' ']
-# accent_charset = ['à', 'á', 'â', 'ã', 'ä', 'å', 'ā', 'æ', 'ç', 'è', 'é', 'ê', 'ë', 'ì', 'í', 'î', 'ï', 'ð', 'ñ', 'ò',
-#               'ó', 'ô', 'õ', 'ö', 'ō', 'ø', 'ù', 'ú', 'û', 'ü', 'ý', 'þ', 'ÿ', 'À', 'Á', 'Â', 'Ã', 'Ä', 'Å', 'Æ',
-#               'Ç', 'È', 'É', 'Ê', 'Ë', 'Ì', 'Í', 'Î', 'Ï', 'Ð', 'Ñ', 'Ò', 'Ó', 'Ô', 'Õ', 'Ö', 'Ø', 'Ù', 'Ú', 'Û',
-#               'Ü', 'Ý', 'Þ', 'Ÿ']
-# weird_charset = ['«', '»', '—', "’", "°", "–", "œ"]
-# old_charset = charset_without_accent + accent_charset + weird_charset + symbols
-#
-# not_mapped = []
-# possible_mapping = list(range(len(old_charset)))
-# mapping = {}
-# for i, char in enumerate(args.charset):
-#     if char in old_charset:
-#         mapping[i] = old_charset.index(char)
-#         possible_mapping.remove(mapping[i])
-#     else:
-#         not_mapped.append(char)
-# print(len(mapping), len(not_mapped))
-# while len(possible_mapping) < len(not_mapped):
-#     possible_mapping.append(np.random.randint(0, len(old_charset)))
-# possible_mapping = list(np.random.permutation(possible_mapping))
-#
-# for i, char in enumerate(args.charset):
-#     if char not in old_charset:
-#         mapping[i] = possible_mapping[0]
-#         possible_mapping.pop(0)
-#
-# # check if all is mapped
-# print(len(mapping), len(args.charset))
-#
-# for j in range(model.transformer.num_decoder_layers):
-#     for i in range(charset_size):
-#         new_class_embed[j].weight.data[i, :] = model.class_embed[j].weight.data[mapping[i], :]
-#         new_class_embed[j].bias.data[i] = model.class_embed[j].bias.data[mapping[i]]
-#
-#         new_decoder_class_embed.weight.data[i, :] = model.transformer.decoder.class_embed[j].weight.data[mapping[i], :]
-#         new_decoder_class_embed.bias.data[i] = model.transformer.decoder.class_embed[j].bias.data[mapping[i]]
-#
-#         new_enc_out_class_embed.weight.data[i, :] = model.transformer.enc_out_class_embed.weight.data[mapping[i], :]
-#         new_enc_out_class_embed.bias.data[i] = model.transformer.enc_out_class_embed.bias.data[mapping[i]]
-
-
-# -------------------------------------------------------
-# load data
-
-# outdated, must be deleted
-# def load_data_outdated():
-#     # images
-#     folder_data = '/home/rbaena/Downloads/dantes/'
-#     # bounding boxes
-#     path_annotations = '/home/rbaena/projects/OCR/OCR_line/DINO/DANTES_annos'
-#
-#     # dict_book = { "witness/folder": ["list of path to images"] }
-#     list_book = os.listdir(folder_data)
-#     dict_book = {}
-#     for book in list_book:
-#         list_pages = os.listdir(folder_data + book)
-#         dict_book[book] = list_pages
-#         # sort
-#         dict_book[book].sort()
-#
-#     # all pages to be processed in total
-#     total_number_image = 0
-#     for bb in dict_book:
-#         total_number_image += len(dict_book[bb])
 
 # -------------------------------------------------------
 # utils
@@ -192,6 +119,7 @@ def sanitize(inimg_dir:str, inbbox_dir:str, outimg_dir:str) -> Tuple[os.PathLike
 
     return inimg_dir_abs, inbbox_dir_abs, outimg_dir_abs
 
+
 # returns a list of (json_file, img_file) for each json to process
 def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, visualize:bool=False) -> List[Tuple[os.PathLike, os.PathLike]]:
     fp_json_list = [
@@ -204,6 +132,7 @@ def get_file_pairs(inimg_dir:os.PathLike, inbbox_dir:os.PathLike, visualize:bool
         for fp_json in fp_json_list
     ]
     return file_pairs[:10] if visualize and len(file_pairs) > 10 else file_pairs
+
 
 # create output directory: output_img_dir/<wid>/ (in `output_img_dir`, one directotry per `wid`)
 def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> None:
@@ -222,6 +151,88 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
     if not os.path.isdir(vis_path):
         os.makedirs(vis_path)
     return
+
+
+# create a visualization and write it to file
+def write_visualization(
+    fp_out: os.PathLike,
+    image: ImageType,
+    list_lt: List[Tuple[int,int]],
+    list_bbox: List[torch.FloatTensor],
+    list_labels: List[List[str]]
+) -> None:
+
+    fig, ax = plt.subplots(1)
+    ax.imshow(image)
+    bbox_image = []
+    label_image = []
+    for left_top, bbox, labels in zip(list_lt, list_bbox, list_labels):
+        for bbb in bbox:
+            x, y, w, h = bbb
+            x_shifted = x + left_top[0]
+            y_shifted = y + left_top[1]
+            rect = patches.Rectangle((x_shifted, y_shifted), w, h, linewidth=0.11, edgecolor='r', facecolor='none')
+            ax.add_patch(rect)
+
+            # Shift des bboxes pour avoir position relatives dans images
+            bbox_image.append(torch.tensor([x_shifted, y_shifted, w, h]).long())
+        label_image.append(labels)
+
+    plt.savefig(fp_out, dpi=300)
+    return
+
+
+# format bboxes to coco and write to file
+def write_coco(
+    fp_out: os.PathLike,
+    fp_img_basename: str,
+    image: ImageType,
+    list_lt: List[Tuple[int,int]],
+    list_bbox: List[torch.FloatTensor],
+    list_labels: List[List[str]]
+) -> None:
+
+    bbox_image = []
+    label_image = []
+    for left_top, bbox, labels in zip(list_lt, list_bbox, list_labels):
+        for bbb in bbox:
+            x, y, w, h = bbb
+            x_shifted = x + left_top[0]
+            y_shifted = y + left_top[1]
+            # Shift des bboxes pour avoir position relatives dans images
+            bbox_image.append(torch.tensor([x_shifted, y_shifted, w, h]).long())
+        label_image.append(labels)
+
+    # convert to coco format and save json
+    coco_format = {
+        'images': [{'file_name': fp_img_basename, 'id': 0, 'height': image.size[1], 'width': image.size[0]}],
+        'annotations': [],
+        'categories': []
+    }
+
+    # flatten labels
+    label_image = [item for sublist in label_image for item in sublist]
+    bbox_image = torch.stack(bbox_image)
+
+    category_map = {}
+    for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
+        # Add category to the categories list if it doesn't exist
+        if label not in category_map:
+            category_id = len(category_map) + 1  # Assign a new ID to this category
+            category_map[label] = category_id
+            coco_format['categories'].append({'id': category_id, 'name': label, 'supercategory': 'none'})
+
+        # Add the annotation with the correct category ID
+        coco_format['annotations'].append({
+            'id': i,
+            'image_id': 0,
+            'bbox': [bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()],
+            'category_id': category_map[label]
+        })
+    with open(fp_out, mode='w') as fh:
+        json.dump(coco_format, fh)
+    return
+
 
 # -------------------------------------------------------
 # model
@@ -312,7 +323,7 @@ def img_crop_to_tensor(
 #NOTE are the dimensions of `boxes` and `final_boxes` in (left, top, right, bottom)
 # or in `(x, y, height, width)`
 def inference(
-    model:DINO,
+    model: DINO,
     postprocessors: Dict[str, PostProcess],
     charset: List[str],
     crop_tensor: torch.FloatTensor,
@@ -360,17 +371,18 @@ def inference(
 
 
 def pipeline(
-    model:DINO,
-    postprocessors:Dict[str, PostProcess],
-    charset:List[str],
-    fp_json:os.PathLike,
-    fp_img:os.PathLike,
-    output_dir:os.PathLike,
-    visualize:bool
-):
-    list_bbox = []                      # list of torch.FloatTensor for character bounding boxes in the annotation. each bbox is structured as [x,y,w,h]
-    list_lt: List[Tuple[int,int]] = []  # list of (left,top)
-    list_labels: List[List[str]] = []   # list of predicted characters for a bbox
+    model: DINO,
+    postprocessors: Dict[str, PostProcess],
+    charset: List[str],
+    fp_json: os.PathLike,
+    fp_img: os.PathLike,
+    output_dir: os.PathLike,
+    visualize: bool
+) -> None:
+
+    list_bbox: List[torch.FloatTensor] = []  # list of torch.FloatTensor for character bounding boxes in the annotation. 1 tensor = bboxes for 1 line. each bbox is structured as [x,y,w,h]
+    list_lt: List[Tuple[int,int]] = []       # list of (left,top)
+    list_labels: List[List[str]] = []        # list of predicted characters for a bbox
 
     image_basename = os.path.basename(fp_img)
     image = Image.open(fp_img).convert("RGB")
@@ -397,60 +409,13 @@ def pipeline(
             print('`pipeline()`: Error processing image', fp_img)
             raise
 
-    # extract info + visualisation stuff
-    #TODO move everything below to their own functions
-    #TODO why is only start of lines extracted ?
-    #TODO create a specific function for visualization
+    # convert to output formats and write to file
     if visualize:
-        fig, ax = plt.subplots(1)
-        ax.imshow(image)
-    bbox_image = []
-    label_image = []
-    for left_top, bbox, labels in zip(list_lt, list_bbox, list_labels):
-        for bbb in bbox:
-            x, y, w, h = bbb
-            x_shifted = x + left_top[0]
-            y_shifted = y + left_top[1]
-            if visualize:
-                rect = patches.Rectangle((x_shifted, y_shifted), w, h, linewidth=0.11, edgecolor='r', facecolor='none')
-                ax.add_patch(rect)
-            # Shift des bboxes pour avoir position relatives dans images
-            bbox_image.append(torch.tensor([x_shifted, y_shifted, w, h]).long())
-        label_image.append(labels)
-
-    if visualize:
-        outpath = to_out_visualization(image_basename, output_dir)
-        plt.savefig(outpath, dpi=300)
-
-    # convert to coco format and save json
-    coco_format = {
-        'images': [{'file_name': image_basename, 'id': 0, 'height': image.size[1], 'width': image.size[0]}],
-        'annotations': [],
-        'categories': []
-    }
-
-    # flatten labels
-    label_image = [item for sublist in label_image for item in sublist]
-    bbox_image = torch.stack(bbox_image)
-
-    category_map = {}
-    for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
-        # Add category to the categories list if it doesn't exist
-        if label not in category_map:
-            category_id = len(category_map) + 1  # Assign a new ID to this category
-            category_map[label] = category_id
-            coco_format['categories'].append({'id': category_id, 'name': label, 'supercategory': 'none'})
-
-        # Add the annotation with the correct category ID
-        coco_format['annotations'].append({
-            'id': i,
-            'image_id': 0,
-            'bbox': [bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()],
-            'category_id': category_map[label]
-        })
-    outpath_coco = to_out_coco(image_basename, output_dir)
-    with open(outpath_coco, mode='w') as fh:
-        json.dump(coco_format, fh)
+        fp_out = to_out_visualization(image_basename, output_dir)
+        write_visualization(fp_out, image, list_lt, list_bbox, list_labels)
+    else:
+        fp_out = to_out_coco(image_basename, output_dir)
+        write_coco(fp_out, image_basename, image, list_lt, list_bbox, list_labels)
     return
 
 # -------------------------------------------------------
