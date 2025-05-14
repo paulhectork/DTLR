@@ -305,7 +305,8 @@ def img_crop_to_tensor(
     image:ImageType, bbox_crop: List[float]#l:float, t:float, r:float, b:float
 ) -> Tuple[float, float, ImageType, torch.FloatTensor, Tuple[int,int], Tuple[int,int]]:
     l, t, r, b = bbox_crop
-    l, t, r, b = l-10, t+5, r+10, b+3
+    l, t, r, b = l-10, t-10, r+10, b+3    # raphael shift
+    # l, t, r, b = l-10, t-5, r+10, b+3   # my shift
     crop_image = image.crop((l, t, r, b))
     crop_image_size = crop_image.size
     crop_tensor, _ = transform(crop_image, None)
@@ -351,6 +352,18 @@ def inference(
             bytes(_string, "utf-8").decode("unicode_escape")
             for _string in box_label
         ]
+
+    # remove bounding boxes whose label is `" "` (aka, don't detect spaces)
+    #NOTE this also deletes a good amount to other characters so we disable
+    #NOTE there is probably an issue with label detection (many chars labels as spaces when they are not spaces)
+    # idx_no_spaces = []        # array of indexes to keep
+    # box_label_no_spaces = []  # clean labels
+    # for i, char in enumerate(box_label):
+    #     if char != " ":
+    #         idx_no_spaces.append(i)
+    #         box_label_no_spaces.append(char)
+    # boxes = boxes[idx_no_spaces]
+    # box_label = box_label_no_spaces
 
     # shift bounding boxes from tensor dimension to the OG image's dimension
     ratios_h, ratios_w = tuple(
