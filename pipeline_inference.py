@@ -71,10 +71,14 @@ def to_abspath(p:str|os.PathLike) -> os.PathLike:
 def rmext(s:str) -> str:
     return re.sub(r"\.[^\.]+", "", s)
 
-# filenames have the structure: wit<witId>_man<manId>_<pageNum>.<extensiom>
+# filenames have either the structure:
+#  - wit<witId>_man<manId>_<pageNum>.<extension>
+#  - or
 # => extract wit<witId>_man<manId>
+pattern_aikon = re.compile(r"^wit\d+_man\d+")  # manuscripts from the aikon platform
+pattern_oxford = re.compile(r"^[A-Z0-9]+")     # maniscripts sent from oxford
 def wid_from_filename(f:str) -> str|None:
-    wid = re.search(r"^wit\d+_man\d+", f)
+    wid = re.search(pattern_aikon, f) or re.search(pattern_oxford, f)
     return wid[0] if wid is not None else None
 
 def img_name_from_json(fp_json:os.PathLike) -> str:
@@ -143,6 +147,8 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
         wid = wid_from_filename(f)
         if wid is not None and wid not in witnesses:
             witnesses.append(wid)
+        elif wid is None:
+            raise ValueError(f"DTLR.pipeline_inference.create_output_structure: could not extract witness ID from filename '{f}'")
     for wid in set(witnesses):
         wid_path = os.path.join(outimg_dir, wid)
         if not os.path.isdir(wid_path):
