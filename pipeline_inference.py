@@ -144,6 +144,8 @@ def create_output_structure(inimg_dir:os.PathLike, outimg_dir:os.PathLike) -> No
         os.makedirs(outimg_dir)
     witnesses = []
     for f in os.listdir(inimg_dir):
+        if f in [".gitignore", ".gitkeep"]:
+            continue
         wid = wid_from_filename(f)
         if wid is not None and wid not in witnesses:
             witnesses.append(wid)
@@ -215,26 +217,27 @@ def write_coco(
         'annotations': [],
         'categories': []
     }
-
     # flatten labels
     label_image = [item for sublist in label_image for item in sublist]
-    bbox_image = torch.stack(bbox_image)
+    # if there are annotations in the image, build the output coco
+    if len(bbox_image):
+        bbox_image = torch.stack(bbox_image)
 
-    category_map = {}
-    for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
-        # Add category to the categories list if it doesn't exist
-        if label not in category_map:
-            category_id = len(category_map) + 1  # Assign a new ID to this category
-            category_map[label] = category_id
-            coco_format['categories'].append({'id': category_id, 'name': label, 'supercategory': 'none'})
+        category_map = {}
+        for i, (bbox, label) in enumerate(zip(bbox_image, label_image)):
+            # Add category to the categories list if it doesn't exist
+            if label not in category_map:
+                category_id = len(category_map) + 1  # Assign a new ID to this category
+                category_map[label] = category_id
+                coco_format['categories'].append({'id': category_id, 'name': label, 'supercategory': 'none'})
 
-        # Add the annotation with the correct category ID
-        coco_format['annotations'].append({
-            'id': i,
-            'image_id': 0,
-            'bbox': [bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()],
-            'category_id': category_map[label]
-        })
+            # Add the annotation with the correct category ID
+            coco_format['annotations'].append({
+                'id': i,
+                'image_id': 0,
+                'bbox': [bbox[0].item(), bbox[1].item(), bbox[2].item(), bbox[3].item()],
+                'category_id': category_map[label]
+            })
     with open(fp_out, mode='w') as fh:
         json.dump(coco_format, fh)
     return
