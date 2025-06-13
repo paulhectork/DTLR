@@ -19,12 +19,10 @@ from typing import List
 import torch
 import torch.nn.functional as F
 from torch import nn
-from typing import Tuple
 
 from torchvision.ops.boxes import nms
-from util.box_ops import box_cxcywh_to_xyxy, generalized_box_iou
-from util import box_ops
-from util.misc import (
+from ...util import box_ops
+from ...util.misc import (
     NestedTensor,
     nested_tensor_from_tensor_list,
     accuracy,

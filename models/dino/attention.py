@@ -18,15 +18,9 @@ Mostly copy-paste from https://github.com/pytorch/pytorch/blob/master/torch/nn/m
 and https://github.com/pytorch/pytorch/blob/master/torch/nn/functional.py#L4837
 """
 
-import copy
-from typing import Optional, List
-
 import torch
-import torch.nn.functional as F
 from torch import nn, Tensor
 
-import warnings
-from typing import Tuple, Optional
 
 import torch
 from torch import Tensor
@@ -39,7 +33,6 @@ from torch.nn.modules.module import Module
 from torch.nn import functional as F
 
 import warnings
-import math
 
 from torch._C import _infer_size, _add_docstr
 from torch.nn import _reduction as _Reduction
