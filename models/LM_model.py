@@ -1,8 +1,6 @@
-
 import torch
 import torch.nn as nn
 import math
-from util.misc import inverse_sigmoid
 
 
 def positional_encoding(tensor, d_model):
