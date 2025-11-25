@@ -90,7 +90,7 @@ def load_model_and_data(model_folder_path, mode, dataset_name="IAM"):
     model_checkpoint_path = f"{model_folder_path}/checkpoint{epoch}.pth"
 
     # model_checkpoint_path = "logs/DINO/raph_ckpts/checkpoint0021.pth"
-    checkpoint = torch.load(model_checkpoint_path, map_location="cpu")
+    checkpoint = torch.load(model_checkpoint_path, map_location="cpu", weights_only=False)
     model.load_state_dict(checkpoint["model"])
     model = model.eval()
 
